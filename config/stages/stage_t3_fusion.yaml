@@ -1,0 +1,9 @@
+# Stage T3: full multimodal with calibration enabled.
+model:
+  fusion:
+    alpha: 1.2
+training:
+  uncertainty_weight: 0.4
+  calibration:
+    enabled: true
+    temperature_init: 0.8

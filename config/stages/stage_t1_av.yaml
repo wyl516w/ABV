@@ -1,0 +1,7 @@
+# Stage T1: Audio-visual training only.
+model:
+  encoders:
+    bc:
+      enabled: false
+training:
+  modality_dropout: 0.05

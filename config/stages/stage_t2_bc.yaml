@@ -1,0 +1,8 @@
+# Stage T2: add bone-conduction branch with adaptation.
+model:
+  encoders:
+    bc:
+      enabled: true
+      adaptation: true
+training:
+  uncertainty_weight: 0.3
