@@ -10,6 +10,8 @@ callers receive informative errors when a modality is missing.
 
 from __future__ import annotations
 
+import importlib
+import importlib.util
 from typing import Dict, Iterable, List, Sequence
 
 import torch
@@ -35,6 +37,16 @@ def _normalise_transcript(transcript: Iterable[str] | str) -> List[str]:
     else:
         transcript = list(transcript)
     return transcript
+
+
+def _normalise_characters(transcript: Iterable[str] | str) -> List[str]:
+    """Normalise the transcript to a list of characters without whitespace."""
+
+    if isinstance(transcript, str):
+        tokens = transcript
+    else:
+        tokens = "".join(str(token) for token in transcript)
+    return [ch for ch in tokens if not ch.isspace()]
 
 
 def wer(hypothesis: Iterable[str] | str, reference: Iterable[str] | str) -> float:
@@ -77,6 +89,29 @@ def wer(hypothesis: Iterable[str] | str, reference: Iterable[str] | str) -> floa
     return float(dp[-1, -1].item() / len(ref_tokens))
 
 
+def cer(hypothesis: Iterable[str] | str, reference: Iterable[str] | str) -> float:
+    """Compute the character-error-rate (CER) between two transcripts."""
+
+    hyp_chars = _normalise_characters(hypothesis)
+    ref_chars = _normalise_characters(reference)
+    if not ref_chars:
+        return 0.0
+
+    dp = torch.zeros((len(ref_chars) + 1, len(hyp_chars) + 1), dtype=torch.int32)
+    dp[0] = torch.arange(len(hyp_chars) + 1)
+    dp[:, 0] = torch.arange(len(ref_chars) + 1)
+    for i, ref_char in enumerate(ref_chars, start=1):
+        for j, hyp_char in enumerate(hyp_chars, start=1):
+            cost = 0 if ref_char == hyp_char else 1
+            dp[i, j] = min(
+                dp[i - 1, j] + 1,
+                dp[i, j - 1] + 1,
+                dp[i - 1, j - 1] + cost,
+            )
+
+    return float(dp[-1, -1].item() / len(ref_chars))
+
+
 def stoi_placeholder(prediction: Tensor, target: Tensor) -> float:
     """Placeholder short-time objective intelligibility score.
 
@@ -95,6 +130,60 @@ def stoi_placeholder(prediction: Tensor, target: Tensor) -> float:
     tgt_flat = target.reshape(target.shape[0], -1)
     score = torch.cosine_similarity(pred_flat, tgt_flat, dim=-1).mean()
     return float(score.clamp(min=-1.0, max=1.0).item())
+
+
+def stoi(prediction: Tensor, target: Tensor, sample_rate: int, extended: bool = False) -> float:
+    """Compute STOI/ESTOI via :mod:`pystoi` with lazy importing."""
+
+    if sample_rate <= 0:
+        raise ValueError("sample_rate must be positive")
+    try:
+        from pystoi import stoi as stoi_fn  # type: ignore import
+    except ImportError as exc:  # pragma: no cover - exercised via tests
+        raise RuntimeError(
+            "pystoi is required for STOI/ESTOI computation. Install with `pip install pystoi`."
+        ) from exc
+
+    prediction_np = prediction.detach().cpu().numpy()
+    target_np = target.detach().cpu().numpy()
+    if prediction_np.shape != target_np.shape:
+        raise ValueError("prediction and target must share the same shape")
+
+    return float(stoi_fn(target_np, prediction_np, sample_rate, extended=extended))
+
+
+def estoi(prediction: Tensor, target: Tensor, sample_rate: int) -> float:
+    """Extended short-time objective intelligibility using :func:`stoi`."""
+
+    return stoi(prediction, target, sample_rate, extended=True)
+
+
+def pesq_score(
+    prediction: Tensor,
+    target: Tensor,
+    sample_rate: int,
+    mode: str = "wb",
+) -> float:
+    """Compute PESQ using the optional :mod:`pesq` package."""
+
+    if sample_rate <= 0:
+        raise ValueError("sample_rate must be positive")
+    try:
+        from pesq import pesq as pesq_fn  # type: ignore import
+    except ImportError as exc:  # pragma: no cover - exercised via tests
+        raise RuntimeError(
+            "pesq is required for PESQ computation. Install with `pip install pesq`."
+        ) from exc
+
+    prediction_np = prediction.detach().cpu().numpy()
+    target_np = target.detach().cpu().numpy()
+    if prediction_np.shape != target_np.shape:
+        raise ValueError("prediction and target must share the same shape")
+
+    if mode not in {"wb", "nb"}:
+        raise ValueError("mode must be either 'wb' (wide-band) or 'nb' (narrow-band)")
+
+    return float(pesq_fn(sample_rate, target_np, prediction_np, mode))
 
 
 def reliability_curve(errors: Tensor, uncertainties: Tensor) -> Dict[str, Tensor]:
@@ -195,7 +284,11 @@ def speaker_similarity(embedding_a: Tensor, embedding_b: Tensor) -> float:
 
 __all__ = [
     "wer",
+    "cer",
     "stoi_placeholder",
+    "stoi",
+    "estoi",
+    "pesq_score",
     "reliability_curve",
     "calibration_metrics",
     "speaker_similarity",
