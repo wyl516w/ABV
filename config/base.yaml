@@ -1,0 +1,29 @@
+# Base configuration for unified auditory token space.
+data:
+  sample_rate: 16000
+  video_fps: 30
+  frame_size: [96, 96]
+  codec_hop_ms: 20
+model:
+  hidden_dim: 64
+  encoders:
+    noisy_ac:
+      hidden_dim: 32
+    bc:
+      hidden_dim: 32
+    vis:
+      hidden_dim: 32
+  fusion:
+    alpha: 1.0
+  lm:
+    vocab_sizes: [8, 8]
+    num_layers: 2
+optimizer:
+  lr: 0.001
+scheduler:
+  type: cosine
+training:
+  batch_size: 4
+  steps: 1000
+  modality_dropout: 0.1
+  uncertainty_weight: 0.2
