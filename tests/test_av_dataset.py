@@ -1,6 +1,7 @@
 """Tests for the audio-visual dataset."""
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Dict, List
 
 import pytest
@@ -63,3 +64,17 @@ def test_requires_audio_or_video(metadata_items: List[Dict[str, Any]]) -> None:
     dataset = AVDataset(metadata_items + [bad])
     with pytest.raises(ValueError):
         _ = dataset[3]
+
+
+def test_text_loading_from_path(tmp_path: Path) -> None:
+    text_path = tmp_path / "utt.txt"
+    text_path.write_text("你好", encoding="utf-8")
+    metadata = {
+        "utt_id": "with-text",
+        "audio_ac": torch.zeros(4),
+        "text": str(text_path),
+    }
+    dataset = AVDataset([metadata])
+    text_tensor = dataset[0]["text"]
+    assert text_tensor.dtype == torch.long
+    assert text_tensor.shape[0] == len("你好")
